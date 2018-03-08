@@ -652,23 +652,55 @@ if sys.argv[-1].split(",")[0] in ["general", "admin"]:
 
 
 
-
+    # "I" in the comments in this function refers to fdagpigj
     def FilterUniversalMaildrop( poi, dim ):
-        global activePlayersLower
-        global logging
+        # poi is apparently a single tile entity of interest
+        # not to be confused with https://twitter.com/PoiPoiChen
+
+        # why are these global? They're not being modified as far as I can tell
+        # either way they might as well go on one line, right?
+        global activePlayersLower, logging
         if poi['id'] in ['Chest', "minecraft:chest"]:
+            # a list of the custom names of each ender eye in the chest
             watchingeyes = [x["tag"]["display"]["Name"] for x in poi.get("Items", []) if (x.get("id","") == "minecraft:ender_eye" and x.get("tag",{}).get("display",{}).get("Name",''))]
             
-            if watchingeyes:
+            # To avoid changing the order of the two if blocks lower down - just on the off chance that the order matters - I
+            # made this third if block (and use a boolean flag to avoid doing the same potentially performace-heavy check twice)
+            # instead of simply moving the lower one up here and expanding on it
+
+            # these two vars are used later but only modified in the first if block
+            isPotentialMaildrop = False
+            adress = ""
+
+            if poi.has_key('CustomName'):
+                rawplayer = poi['CustomName']
+                if rawplayer[0] == "@":
+                    adress = rawplayer
+                else:
+                    # it can't be a maildrop if it starts with "@" since maildrops start with player IGNs or "." or "!"
+                    isPotentialMaildrop = True
+
+
+            # A check for non-empty "watchingeyes" isn't needed here since "for x in l" does nothing if len(l)==0. I kept the block indented for readability I guess.
+            # The only difference the old check actually made is that "numeyes" would be undefined instead of 0, but it's not used later anyway
+
+            if True:
+                # check if the chest is watched
+
                 numeyes = len(watchingeyes)
-                for eyes in watchingeyes:
-                    logging.info(eyes)
-                    inverted = eyes[0] == "!"
-                    numslots = len(poi['Items']) - numeyes
-                    playerdesc = eyes.lstrip('!').split(" ", 1)
+                # cache numslots instead of recalculating it every iteration
+                numslots = len(poi['Items']) - numeyes
+                # calling the item "eyes" is misleading since it's only one stack's custom name so I changed it to singular form
+                for eye in watchingeyes:
+                    logging.info(eye)
+                    inverted = eye[0] == "!"
+                    playerdesc = eye.lstrip('!').split(" ", 1)
                     player = playerdesc[0]
                     hidden = True
                     desc = playerdesc[1] if len(playerdesc) > 1 else ""
+                    # adress is defined earlier - either empty string or "@nameofchest"
+                    # the @ from the chest name is preserved eg. a chestwatch may show up like "cool stuff@coolest stuff"
+                    desc += adress
 
                     if player.lower() in activePlayersLower:
                         coords = dim + "," + str(poi['x']) + "," + str(poi['y']) + "," + str(poi['z'])
@@ -676,11 +708,15 @@ if sys.argv[-1].split(",")[0] in ["general", "admin"]:
                         dbQuery(dbfile, timeout, ('INSERT OR IGNORE INTO maildrop (coords, name, desc, slots, hidden, inverted, datetime ) VALUES (?, ?, ?, ? ,?, ?, ?)', (coords, player, desc, numslots, hidden, inverted, now)))
                         dbQuery(dbfile, timeout, ('UPDATE maildrop SET name = ?, desc = ?, slots = ?, hidden = ?, inverted = ? , datetime = ?, notified = CASE WHEN slots <> ? THEN 0 ELSE notified END WHERE coords = ?', (player, desc, numslots, hidden, inverted, now, numslots, coords)))
 
-                        
-            if poi.has_key('CustomName'):
 
-                rawplayer = poi['CustomName']
-                numslots = len(poi['Items'])
+            if isPotentialMaildrop:
+
+                # the following line will already have been necessarily performed in the same scope, prior to isPotentialMaildrop being set to True
+                #rawplayer = poi['CustomName']
+                # numslots is calculated previously, now with numeyes subtracted so people should be able to watch a maildrop without bugs
+                # at least I doubt anyone wants to get an eternal maildrop notification because someone put a watching eye in their maildrop
+                # (or never get a notification, if it's an inverse maildrop)
+                #numslots = len(poi['Items'])
                 inverted = rawplayer[0] == "!" 
                 hidden = rawplayer[0] in [".", "!"]
                 playerdesc = rawplayer.lstrip(".").lstrip('!').split(" ", 1)
@@ -700,8 +736,8 @@ if sys.argv[-1].split(",")[0] in ["general", "admin"]:
                         # dbQuery(dbfile, timeout, ('INSERT OR IGNORE INTO maildrop (coords, name, desc, slots, hidden, inverted, datetime ) VALUES (?, ?, ?, ? ,?, ?, ?)', (coords, player, desc, numslots, hidden, inverted, now)))
                         dbQuery(dbfile, timeout, ('UPDATE maildrop SET name = ?, desc = ?, slots = ?, hidden = ?, inverted = ? , datetime = ?, notified = CASE WHEN slots <> ? THEN 0 ELSE notified END WHERE coords = ?', (player, desc, numslots, hidden, inverted, now, numslots, coords)))
                         
-                        
-                    if not (hidden or inverted):
+                    # hidden is True if the chestname starts with either "." or "!" so no need to check if it's inverted
+                    if not hidden:
                         poi['icon'] = "https://minotar.net/avatar/"+ player.lower() +"/24"
                         # poi["icon"] = "icons/orange/{}.png".format(iconList[weeks])
                         return "{} maildrop\n{}\n".format(player, desc)
